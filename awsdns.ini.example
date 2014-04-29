@@ -1,0 +1,11 @@
+[awsdns]
+dns_server = XXXXXXXX        
+aws_access_key_id = YYYYYYYYYYYYYYYYYYYY
+aws_secret_access_key = ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ
+aws_region = us-east-1
+forward = tag:Name
+reverse = private_ip_address
+extra = 
+    tag:Class
+    id
+    key_pair

@@ -1,0 +1,13 @@
+bin/*
+*.egg-info
+.installed.cfg
+parts/*
+build/*
+dist/*
+eggs/*
+develop-eggs/*
+*~
+*.pyc
+.DS_Store
+awsdns.ini
+.coverage

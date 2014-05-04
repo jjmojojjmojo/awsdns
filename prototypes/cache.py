@@ -6,8 +6,10 @@ TODO: also cache results from DNS?
 
 from twisted.internet import reactor
 from twisted.internet import task
+from twisted.internet import defer
 
 import pprint, random
+import time
 
 class ResolverCache(object):
     """
@@ -29,28 +31,46 @@ class ResolverCache(object):
         self._cache = {}
         self.callback = callback
     
-    def __getitem__(self, key):
-        print "retrieving %s" % (key) 
+    def __getdeferred__(self, key):
+        """
+        Wrap the functionality of __getitem__ such that it can possibly return
+        a deferred.
+        """
         try:
+            print "Found %s" % (key)
             val = self._cache.__getitem__(key)
+            return val
         except KeyError:
-            print "Not found - calling callback"
-            name, val, ttl = self.callback(key)
-            self.cache(name, val, ttl)
+            print "%s not found - calling callback" % (key) 
+            d = defer.maybeDeferred(self.callback, key)
             
-        return val
+            d.addCallback(self.cache)
+            return d
+    
+    def __getitem__(self, key):
+        """
+        Return a deferred - will be from the cache if it exists, will be the
+        result of calling (and caching) the callback if not.
+        """
+        print "retrieving %s" % (key) 
+        d = defer.maybeDeferred(self.__getdeferred__, key)
+        
+        return d
                 
     def __setitem__(self, key, val):
         raise NotImplemented, "Assignment not supported. Please use cache() or attempt to get a value"
     
-    def cache(self, name, message, ttl):
+    def cache(self, info):
         """
-        Set an item in the cache.
+        Set an item in the cache. Pass a single tuple containing the following
+        members:
         
         name = the name of the entry (e.g. www.mysite.com, 1.1.168.192.in-arpa)
         message = a tuple of lists (the output of EC2Resolver.create_message)
         ttl = time to live, in seconds
         """
+        name, message, ttl = info
+        
         print "Setting %s with TTL %s" % (name, ttl)
         self._cache[name] = message
         
@@ -65,6 +85,7 @@ class ResolverCache(object):
         
         d.addCallback(log)
         
+        return message
     
     
 
@@ -78,19 +99,27 @@ all_messages = [
     'loaded2:32',
     'loaded3:32',
     'loaded4:94',
+    'fake1:56',
+    'fake2:32',
+    'fake3:32',
+    'fake4:94',
+    'loaded1:56',
+    'loaded2:32',
+    'loaded3:32',
+    'loaded4:94',
 ]
 
 random.shuffle(all_messages)
 
 fake_messages = {
-    'fake1:56': (('hi', 'mom'), 56),
-    'fake2:32': (('hi', 'mom'), 32),
-    'fake3:32': (('hi', 'mom'), 32),
-    'fake4:94': (('hi', 'mom'), 94),
-    'loaded1:56': (('hi', 'mom'), 56), 
-    'loaded2:32': (('hi', 'mom'), 32),
-    'loaded3:32': (('hi', 'mom'), 32),
-    'loaded4:94': (('hi', 'mom'), 94),
+    'fake1:56': [('fake1', '56'), 56],
+    'fake2:32': [('fake2', '32'), 32],
+    'fake3:32': [('fake3', '32'), 32],
+    'fake4:94': [('fake4', '94'), 94],
+    'loaded1:56': [('loaded1', '56'), 56], 
+    'loaded2:32': [('loaded2', '32'), 32],
+    'loaded3:32': [('loaded3', '32'), 32],
+    'loaded4:94': [('loaded4', '94'), 94],
 }
 
 index = 0
@@ -99,14 +128,18 @@ def fake_message(key):
     print "In callback for %s" % (key)
     return key, fake_messages[key][0], fake_messages[key][1]
 
+def fake_message_block(key):
+    time.sleep(10)
+    return fake_message(key)
+
 def fill_cache():
     """
     Fill the cache up with random data, with various TTLs
     """
-    cache.cache('loaded1:56', ('hi', 'mom'), 56)
-    cache.cache('loaded2:32', ('hi', 'mom'), 32)
-    cache.cache('loaded3:32', ('hi', 'mom'), 32)
-    cache.cache('loaded4:94', ('hi', 'mom'), 94)
+    cache.cache(['loaded1:56',]+fake_messages['loaded1:56'])
+    cache.cache(['loaded2:32',]+fake_messages['loaded2:32'])
+    cache.cache(['loaded3:32',]+fake_messages['loaded3:32'])
+    cache.cache(['loaded4:94',]+fake_messages['loaded4:94'])
     
 def dump_cache():
     """
@@ -129,7 +162,14 @@ class AccessCache(object):
         name = all_messages[self.index]
         
         print "Grabbing '%s'" % (name)
-        print cache[name]
+        
+        d = cache[name]
+        
+        def got(val):
+            print "Got %s" % (val,)
+            
+        d.addCallback(got)
+        
         self.index += 1
     
 cache = ResolverCache(fake_message)

@@ -6,7 +6,8 @@ setup(
     package_dir = {'':'src'},
     install_requires = [
         "boto",
-        "twisted"
+        "twisted",
+        "tx-logging",
     ],
     entry_points = {
         'console_scripts': [

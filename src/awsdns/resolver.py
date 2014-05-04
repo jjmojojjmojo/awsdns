@@ -18,6 +18,8 @@ from awsdns.cache import ResolverCache
 
 import ConfigParser
 
+import tx_logging
+
 class EC2Resolver(client.Resolver):
     """
     Looks up given host by looking at the EC2 'Name' tag, if the it's a 
@@ -35,6 +37,7 @@ class EC2Resolver(client.Resolver):
     reverse_cache = None
     ttl = None
     autorefresh = None
+    log = None
     
     def __init__(self, config, *args, **kwargs):
         self.config = config
@@ -49,6 +52,8 @@ class EC2Resolver(client.Resolver):
         
         self.forward_cache = ResolverCache(self._EC2Forward, self.autorefresh)
         self.reverse_cache = ResolverCache(self._EC2Reverse, self.autorefresh)
+        
+        self.log = tx_logging.getLogger("awsdns:resolver")
         
         client.Resolver.__init__(self, *args, **kwargs)
     
@@ -115,16 +120,16 @@ class EC2Resolver(client.Resolver):
         """
         output = ([], [], [])
         
-        print "OUTPUT FROM CREATE_MESSAGE type %s" % (record)
+        self.log.debug("OUTPUT FROM CREATE_MESSAGE type %s" % (record))
         
         if not instances:
-            print "NO INSTANCES FOUND"
+            self.log.debug("NO INSTANCES FOUND")
             return output
         
         for instance in instances[0].instances:
             
             value = self._tag_or_property(instance, prop)
-            print "VALUE: %s %s" % (prop, value)
+            self.log.debug("VALUE: %s %s" % (prop, value))
             if not value:
                 continue
             

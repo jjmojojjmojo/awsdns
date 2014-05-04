@@ -3,13 +3,19 @@ AWSDNS - DNS for EC2 instances in Amazon Web Services
 
 Main module - entry points
 """
-import os
+import os, sys
 import ConfigParser
 
 from twisted.internet import reactor
 from twisted.names import server, dns
 
 from resolver import EC2Resolver
+
+import logging
+from twisted.python import log
+from tx_logging.observers import LevelFileLogObserver
+
+import util
 
 def main():
     config = ConfigParser.ConfigParser()
@@ -27,4 +33,13 @@ def main():
     
     reactor.listenUDP(53, p)
     reactor.listenTCP(53, f)
+    
+    try:
+        loglevel = util.logging_constant(config.get('awsdns', 'loglevel'))
+    except ConfigParser.NoOptionError:
+        loglevel = logging.INFO
+    
+    observer = LevelFileLogObserver(sys.stdout, loglevel)
+    log.addObserver(observer)
+    
     reactor.run()

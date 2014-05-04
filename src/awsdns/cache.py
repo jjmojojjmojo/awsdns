@@ -79,7 +79,6 @@ class ResolverCache(object):
         ttl = time to live, in seconds
         """
         name, message, ttl = info
-        print info
         self._cache[name] = message
         
         def remove(name):

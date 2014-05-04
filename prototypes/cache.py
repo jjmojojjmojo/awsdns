@@ -7,6 +7,7 @@ TODO: also cache results from DNS?
 from twisted.internet import reactor
 from twisted.internet import task
 from twisted.internet import defer
+from twisted.internet import threads
 
 import pprint, random
 import time
@@ -22,14 +23,19 @@ class ResolverCache(object):
     
     Callback takes a single argument, the name to look up, and returns a tuple, 
     containing the name, the 'message' (the thing to cache) and a TTL value.
+    
+    autorefresh - set to True to automatically recall the callback function 
+                  whenever the cache item expires.
     """
     
     _cache = None
     callback = None
+    autorefresh = False
     
-    def __init__(self, callback):
+    def __init__(self, callback, autorefresh=False):
         self._cache = {}
         self.callback = callback
+        self.autorefresh = autorefresh
     
     def __getdeferred__(self, key):
         """
@@ -78,12 +84,22 @@ class ResolverCache(object):
             del self._cache[name]
             return name
         
+        def refresh(name):
+            print "Refreshing entry for %s" % (name)
+            self.__getdeferred__(name)
+            return name
+        
         d = task.deferLater(reactor, ttl, remove, name)
         
         def log(name):
             print "Removed %s from the cache." % (name)
+            return name
         
         d.addCallback(log)
+        
+        if self.autorefresh:
+            d.addCallback(refresh)
+        
         
         return message
     
@@ -129,8 +145,15 @@ def fake_message(key):
     return key, fake_messages[key][0], fake_messages[key][1]
 
 def fake_message_block(key):
-    time.sleep(10)
-    return fake_message(key)
+    """
+    Wrap fake_message in a function that blocks for a few seconds
+    """
+    def blocker(key):
+        time.sleep(3)
+        return fake_message(key)
+        
+    d = threads.deferToThread(blocker, key)
+    return d
 
 def fill_cache():
     """
@@ -172,13 +195,13 @@ class AccessCache(object):
         
         self.index += 1
     
-cache = ResolverCache(fake_message)
+cache = ResolverCache(fake_message_block, True)
     
 fill_cache()
 
 l = task.LoopingCall(dump_cache)
 l.start(10)
 l2 = task.LoopingCall(AccessCache())
-l2.start(8)
+l2.start(0.5)
 
 reactor.run()

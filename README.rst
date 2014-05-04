@@ -54,7 +54,8 @@ More documentation is coming, but here's an example file:
         tag:Class
         id
         key_pair
-    
+    loglevel = debug
+    autorefresh = false
     
 
 The aws_* options should be self-explanatory. 
@@ -75,6 +76,14 @@ reverse
 extra
     A list, separated by whitespace, of tags/attributes to return in the 'extra' section of any response. These will be returned as TXT records, loosly conforming to `RFC 1464 <www.rfc-base.org/txt/rfc-1464.txt>`_.
     
+loglevel
+    One of 'CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG' (case insensitive). Sets the level of logging output. Logging is done to STDOUT. Defaults to 'info'.
+    
+autorefresh
+    Boolean. Set to *true* to automatically refresh (hit AWS again) values when they expire. If *false*, expired values are only refreshed when they are requested again. This was implemented due to the considerable delay that the AWS API can impart to a request. This way, subsequent requests for the same data will always be up to date and take roughly the same amount of time.
+    
+ttl
+    Integer. Number of seconds to cache information from AWS once it's been retrieved.
     
 Using The Buildout
 ==================
@@ -166,18 +175,36 @@ boto is a blocking library for most tasks. As a stop-gap, deferToThread is used 
 
 Before this can be used in production, this needs to be addressed. Specifically, txaws needs to be updated and utilized, or an alternative, non-blocking call to the EC2 API needs to be written.
 
+Load Testing
+------------
+This server needs to be tested under heavy load.
+
+Cache Manager
+-------------
+There's utility in being able to manage the cache through a CLI interface or web UI/RESTful API. This way very long TTL values can be used, and refreshed on demand when things are known to have changed.
+
 Authority Record
 ----------------
 The SOA is sent with every request. This is likely unnecessary.
 
-Load Testing
-------------
-This server needs to be tested under heavy load.
+Addressed
+~~~~~~~~~
+Removed in 0.2 (unreleased)
 
 Caching
 -------
 AWS API calls can be slow. Caching needs to be implemented ASAP. A front-loading mechanism, which would scan AWS and pre-populate the cache on boot would also be useful.
 
+Done!
+~~~~~
+Implemented in version 0.2 (unreleased). Pre-population not implemented yet.
+
 Logging
 -------
 The application should utilize logging, and provide debugging output.
+
+Done!
+~~~~~
+Implemented in version 0.2 (unreleased).
+
+First pass of debugging output is very minimal.

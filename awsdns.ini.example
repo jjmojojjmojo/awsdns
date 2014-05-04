@@ -9,3 +9,5 @@ extra =
     tag:Class
     id
     key_pair
+loglevel = debug
+autorefresh = False

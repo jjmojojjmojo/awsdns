@@ -169,6 +169,8 @@ TODO/Gotchas
 
 This section contains notes about the current state of the application.
 
+
+
 DeferToThread Used
 ------------------
 boto is a blocking library for most tasks. As a stop-gap, deferToThread is used to get around this. A seemingly defunct library, txaws, is available in PyPi, but it doesn't work with the current AWS API.
@@ -183,6 +185,24 @@ Cache Manager
 -------------
 There's utility in being able to manage the cache through a CLI interface or web UI/RESTful API. This way very long TTL values can be used, and refreshed on demand when things are known to have changed.
 
+Caching Of Missing Values
+-------------------------
+This is just something to keep in mind - the way the cache works, it will cache empty results from EC2. This is good, when a bunch of requests are made for an instance that cannot be found. 
+
+This is bad, however, if lots of independent requests are made for instances that cannot be found - the amount of memory each request takes up is small (it varies depending on how much metadata is returned, but is still quite small), but memory use will grow with lots of bad entries.
+
+What's worse, there is internal throttling and limits put on the AWS API. 
+
+For example, a simple command line such as the following:
+
+::
+    
+    $ for i in {1..5000}; do dig @192.168.1.109 test2$i; done
+    
+Will create 5000 bad entries in the cache, and every single request will result in a call out to the API.
+
+TODO/Gotchas - FIXED
+====================
 Authority Record
 ----------------
 The SOA is sent with every request. This is likely unnecessary.

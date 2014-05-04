@@ -120,16 +120,14 @@ class EC2Resolver(client.Resolver):
         """
         output = ([], [], [])
         
-        self.log.debug("OUTPUT FROM CREATE_MESSAGE type %s" % (record))
-        
         if not instances:
-            self.log.debug("NO INSTANCES FOUND")
-            return output
+            self.log.debug("No instances found for '%s'" % (name))
+            return (name, output, self.ttl)
         
         for instance in instances[0].instances:
             
             value = self._tag_or_property(instance, prop)
-            self.log.debug("VALUE: %s %s" % (prop, value))
+            self.log.debug("%s: %s %s" % (name, prop, value))
             if not value:
                 continue
             
@@ -146,7 +144,7 @@ class EC2Resolver(client.Resolver):
             
             for extra_prop in self.extra:
                 extra_value = self._tag_or_property(instance, extra_prop)
-                
+                self.log.debug("%s: %s = %s" % (name, extra_prop, extra_value))
                 if extra_value:
                     string = "%s = %s" % (extra_prop, extra_value)
                     extra = dns.Record_TXT(str(string))

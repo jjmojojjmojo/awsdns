@@ -10,6 +10,8 @@ from twisted.internet import reactor
 from twisted.internet import task
 from twisted.internet import defer
 
+import tx_logging
+
 class ResolverCache(object):
     """
     Caches/retrieves entries by name (or IP address).
@@ -37,11 +39,13 @@ class ResolverCache(object):
     _cache = None
     callback = None
     autorefresh = False
+    log = None
     
     def __init__(self, callback, autorefresh=False):
         self._cache = {}
         self.callback = callback
         self.autorefresh = autorefresh
+        self.log = tx_logging.getLogger("awsdns:cache")
     
     def __getdeferred__(self, key):
         """
@@ -50,10 +54,11 @@ class ResolverCache(object):
         """
         try:
             val = self._cache.__getitem__(key)
+            self.log.debug("hit: %s" % (key,))
             return val
         except KeyError:
+            self.log.debug("miss: %s" % (key,))
             d = defer.maybeDeferred(self.callback, key)
-            
             d.addCallback(self.cache)
             return d
     
@@ -82,19 +87,16 @@ class ResolverCache(object):
         self._cache[name] = message
         
         def remove(name):
+            self.log.debug("Removing %s" % (name,))
             del self._cache[name]
             return name
         
         def refresh(name):
+            self.log.debug("Refreshing %s" % (name,))
             self.__getdeferred__(name)
             return name
         
         d = task.deferLater(reactor, ttl, remove, name)
-        
-        def log(name):
-            return name
-        
-        d.addCallback(log)
         
         if self.autorefresh:
             d.addCallback(refresh)

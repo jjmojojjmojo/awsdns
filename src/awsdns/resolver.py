@@ -14,11 +14,15 @@ from twisted.python import log, failure
 
 import boto.ec2
 
+from awsdns.cache import ResolverCache
+
+import ConfigParser
+
 class EC2Resolver(client.Resolver):
     """
     Looks up given host by looking at the EC2 'Name' tag, if the it's a 
     forward lookup. Queries EC2 for the private_ip_address field if it's 
-    a reverse lookup.
+    a reverse lookup (configurable via the config file)
     """
     
     _ec2 = None
@@ -27,6 +31,10 @@ class EC2Resolver(client.Resolver):
     aws_secret_access_key = None
     aws_region = None
     config = None
+    forward_cache = None
+    reverse_cache = None
+    ttl = None
+    autorefresh = None
     
     def __init__(self, config, *args, **kwargs):
         self.config = config
@@ -39,21 +47,45 @@ class EC2Resolver(client.Resolver):
             aws_secret_access_key=self.aws_secret_access_key
         )
         
+        self.forward_cache = ResolverCache(self._EC2Forward, self.autorefresh)
+        self.reverse_cache = ResolverCache(self._EC2Reverse, self.autorefresh)
+        
         client.Resolver.__init__(self, *args, **kwargs)
     
     def parse_config(self):
         """
-        Parses the configuration, handles errors.
+        Parses the configuration, handles errors, sets defaults.
         """
         
         self.aws_region = self.config.get('awsdns', 'aws_region')
         self.aws_access_key_id = self.config.get('awsdns', 'aws_access_key_id')
         self.aws_secret_access_key = self.config.get('awsdns', 'aws_secret_access_key')
         
-        self.forward_filter = self.config.get('awsdns', 'forward', 'tag:Name')
-        self.reverse_filter = self.config.get('awsdns', 'reverse', 'private_ip_address')
+        try:
+            self.forward_filter = self.config.get('awsdns', 'forward')
+        except ConfigParser.NoOptionError:
+            self.forward_filter = 'tag:Name'
+            
+        try:
+            self.reverse_filter = self.config.get('awsdns', 'reverse')
+        except ConfigParser.NoOptionError:
+            self.forward_filter = 'private_ip_address'
         
-        self.extra = self.config.get('awsdns', 'extra', '').split()
+        try:
+            extra = self.config.get('awsdns', 'extra')
+            self.extra = extra.split()
+        except ConfigParser.NoOptionError:
+            self.extra = []
+        
+        try:
+            self.autorefresh = self.config.getboolean('awsdns', 'autorefresh')
+        except ConfigParser.NoOptionError:
+            self.autorefresh = False
+        
+        try:
+            self.ttl = self.config.getint('awsdns', 'ttl')
+        except ConfigParser.NoOptionError:
+            self.ttl = 3600
     
     def _tag_or_property(self, instance, check, default=None):
         """
@@ -103,7 +135,7 @@ class EC2Resolver(client.Resolver):
             else:
                 raise ValueError, "Record constant '%s' is not supported" % (record)
             
-            answer = dns.RRHeader(name, type=record, payload=payload)
+            answer = dns.RRHeader(name, type=record, payload=payload, ttl=self.ttl)
             
             output[0].append(answer)
             
@@ -113,10 +145,10 @@ class EC2Resolver(client.Resolver):
                 if extra_value:
                     string = "%s = %s" % (extra_prop, extra_value)
                     extra = dns.Record_TXT(str(string))
-                    extra_rr = dns.RRHeader(name, type=dns.TXT, payload=extra)
+                    extra_rr = dns.RRHeader(name, type=dns.TXT, payload=extra, ttl=self.ttl)
                     output[2].append(extra_rr)
         
-        return output
+        return (name, output, self.ttl)
     
     def _EC2Forward(self, name):
         """
@@ -156,19 +188,10 @@ class EC2Resolver(client.Resolver):
                 query = message.queries[0]
                 
                 if query.type == dns.A:
-                    d = self._EC2Forward(str(query.name))
+                    d = self.forward_cache[str(query.name)]
                     
                 elif query.type == dns.PTR:
-                    d = self._EC2Reverse(str(query.name))
-                
-                def merge_results(message_tup):
-                    message_tup[0].extend(message.answers)
-                    message_tup[1].extend(message.authority)
-                    message_tup[2].extend(message.additional)
-                    
-                    return message_tup
-                
-                d.addCallback(merge_results)
+                    d = self.reverse_cache[str(query.name)]
                 
                 return d
             

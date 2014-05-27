@@ -201,6 +201,14 @@ For example, a simple command line such as the following:
     
 Will create 5000 bad entries in the cache, and every single request will result in a call out to the API.
 
+Pre-population
+--------------
+It's possible to warm-up the cache when the program starts by making a single call to the AWS API. This will slow startup (how much depends on the number of instances in your account/region), but would prevent any delays in initial requests.
+
+ELB Support
+-----------
+It would be useful to also search for the DNS name (which is typically hard to remember) of an ELB, by making a DNS request for the short internal EC2 name. The returned record would be a CNAME.
+
 TODO/Gotchas - FIXED
 ====================
 Authority Record

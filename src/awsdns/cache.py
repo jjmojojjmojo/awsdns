@@ -12,6 +12,8 @@ from twisted.internet import defer
 
 import tx_logging
 
+import pprint
+
 class ResolverCache(object):
     """
     Caches/retrieves entries by name (or IP address).
@@ -37,6 +39,7 @@ class ResolverCache(object):
     """
     
     _cache = None
+    _pending = None
     callback = None
     autorefresh = False
     log = None
@@ -46,6 +49,7 @@ class ResolverCache(object):
         self.callback = callback
         self.autorefresh = autorefresh
         self.log = tx_logging.getLogger("awsdns:cache")
+        self._pending = {}
     
     def __getdeferred__(self, key):
         """
@@ -58,9 +62,19 @@ class ResolverCache(object):
             return val
         except KeyError:
             self.log.debug("miss: %s" % (key,))
-            d = defer.maybeDeferred(self.callback, key)
-            d.addCallback(self.cache)
-            return d
+            try:
+                # if there is a pending request for this key,
+                self._pending[key]
+                self.log.debug("Request pending for: %s" % (key,))
+                # return nothing
+                return ([], [], [])
+            except KeyError:
+                # otherwise, go ahead
+                self.log.debug("No request pending for: %s" % (key,))
+                d = defer.maybeDeferred(self.callback, key)
+                d.addCallback(self.cache)
+                return d
+                
     
     def __getitem__(self, key):
         """
@@ -84,11 +98,16 @@ class ResolverCache(object):
         ttl = time to live, in seconds
         """
         name, message, ttl = info
+        self.log.debug("NAME: %s, MESSAGE: %s, TTL: %s" % (name, message, ttl))
         self._cache[name] = message
         
         def remove(name):
-            self.log.debug("Removing %s" % (name,))
-            del self._cache[name]
+            try:
+                self.log.debug("Removing %s" % (name,))
+                del self._pending[name]
+                del self._cache[name]
+            except KeyError:
+                pass
             return name
         
         def refresh(name):
@@ -96,9 +115,12 @@ class ResolverCache(object):
             self.__getdeferred__(name)
             return name
         
-        d = task.deferLater(reactor, ttl, remove, name)
+        try:
+            self._pending[name]
+        except KeyError:
+            self._pending[name] = task.deferLater(reactor, ttl, remove, name)
         
-        if self.autorefresh:
-            d.addCallback(refresh)
+            if self.autorefresh:
+                self._pending[name].addCallback(refresh)
         
         return message

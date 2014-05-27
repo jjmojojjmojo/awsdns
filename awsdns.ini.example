@@ -10,4 +10,5 @@ extra =
     id
     key_pair
 loglevel = debug
+logfile = awsdns.log
 autorefresh = False

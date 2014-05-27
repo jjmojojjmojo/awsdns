@@ -39,7 +39,14 @@ def main():
     except ConfigParser.NoOptionError:
         loglevel = logging.INFO
     
-    observer = LevelFileLogObserver(sys.stdout, loglevel)
+    try:
+        logfile = config.get('awsdns', 'logfile')
+        fh = open("awsdns.log", "a")
+    except ConfigParser.NoOptionError:
+        fh = sys.stdout
+    
+    observer = LevelFileLogObserver(fh, loglevel)
+    
     log.addObserver(observer)
     
     reactor.run()

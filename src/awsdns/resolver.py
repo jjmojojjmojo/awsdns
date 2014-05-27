@@ -5,7 +5,7 @@ Resolver - the "meat" of the server
 """
 
 from twisted.internet.protocol import Factory, Protocol
-from twisted.names import client, server, dns
+from twisted.names import client, server, dns, error
 from twisted.internet import defer, threads
 
 import datetime
@@ -50,8 +50,7 @@ class EC2Resolver(client.Resolver):
             aws_secret_access_key=self.aws_secret_access_key
         )
         
-        self.forward_cache = ResolverCache(self._EC2Forward, self.autorefresh)
-        self.reverse_cache = ResolverCache(self._EC2Reverse, self.autorefresh)
+        self.cache = ResolverCache(self._lookup_wrapper, self.autorefresh)
         
         self.log = tx_logging.getLogger("awsdns:resolver")
         
@@ -122,7 +121,7 @@ class EC2Resolver(client.Resolver):
         
         if not instances:
             self.log.debug("No instances found for '%s'" % (name))
-            return (name, output, self.ttl)
+            return output
         
         for instance in instances[0].instances:
             
@@ -151,51 +150,53 @@ class EC2Resolver(client.Resolver):
                     extra_rr = dns.RRHeader(name, type=dns.TXT, payload=extra, ttl=self.ttl)
                     output[2].append(extra_rr)
         
-        return (name, output, self.ttl)
-    
-    def _EC2Forward(self, name):
-        """
-        Do a 'forward' lookup - find an EC2 ip address for a given value of
-        the Name tag.
+        return output
+
         
-        returns a deferred.
-        
-        TODO: make the tag configurable
-        TODO: return public ip instead of private.
-        TODO: refactor to avoid using deferToThread
+    def _reverse_ip(self, name):
         """
-        d = threads.deferToThread(self._ec2.get_all_instances, filters={self.forward_filter: str(name)})
-        d.addCallback(self.create_message, name, self.reverse_filter, record=dns.A)
-        
-        return d
-        
-    def _EC2Reverse(self, address):
+        Given a in-arpa name, return the IP in the correct order.
         """
-        Do a 'reverse' lookup - find an EC2 instance for a given ip address
-        """
-        # extract just the IP from the apra request
-        parts = address.split('.')
+        parts = name.split('.')
         parts.reverse()
         ip = ".".join(parts[2:])
         
-        d = threads.deferToThread(self._ec2.get_all_instances, filters={self.reverse_filter: ip})
-        d.addCallback(self.create_message, address, self.forward_filter, record=dns.PTR)
+        return ip
+        
+    def _lookup_wrapper(self, info):
+        name, cls, type = info
+        
+        d = client.Resolver._lookup(self, name, cls, type, None)
+        
+        def relookup(failure):
+            failure.trap(error.DNSNameError)
+            
+            if type == dns.PTR:
+                ip = self._reverse_ip(name)
+                d = threads.deferToThread(self._ec2.get_all_instances, filters={self.reverse_filter: ip})
+                d.addCallback(self.create_message, name, self.forward_filter, record=dns.PTR)
+            elif type == dns.A:
+                d = threads.deferToThread(self._ec2.get_all_instances, filters={self.forward_filter: str(name)})
+                d.addCallback(self.create_message, name, self.reverse_filter, record=dns.A)
+            else:
+                raise ValueError, "Record constant '%s' is not supported" % (type)
+                
+            return d
+            
+        def format(message):
+            """ 
+            Format the output of _lookup so it fits the cache format
+            """ 
+            return (info, message, self.ttl)
+            
+        d.addErrback(relookup)
+        d.addCallback(format)
         
         return d
         
-    def filterAnswers(self, message):
-        if message.trunc:
-            return self.queryTCP(message.queries).addCallback(self.filterAnswers)
-        else:
-            if not message.answers:
-                query = message.queries[0]
-                
-                if query.type == dns.A:
-                    d = self.forward_cache[str(query.name)]
-                    
-                elif query.type == dns.PTR:
-                    d = self.reverse_cache[str(query.name)]
-                
-                return d
-            
-        return (message.answers, message.authority, message.additional)
+    def _lookup(self, name, cls, type, timeout):
+        self.log.debug("NAME: %s, CLS: %s, TYPE: %s, TIMEOUT: %s" % (name, cls, type, timeout))   
+        
+        d = self.cache[(name, cls, type)]
+        
+        return d
